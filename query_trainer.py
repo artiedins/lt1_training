@@ -2,14 +2,14 @@
 
 import json
 import os
-import random
 import sys
-import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from llm_client import call_llm
 
 # Code style:
 # - No type hinting
@@ -343,97 +343,15 @@ def build_prompt():
     return context + separator + situational + separator + task
 
 
-# --- Claude API call (optional, gated on HRV_CALL_CLAUDE env var) ---
-
-# Opus 4.7 specifics (as of 2026-04):
-# - budget_tokens is removed; only thinking: {"type": "adaptive"} is valid.
-# - thinking display defaults to "omitted" on 4.7, so thinking blocks are not
-#   returned in the response unless we explicitly ask for "summarized". Since
-#   we want plain text output, omitted is exactly what we want.
-# - temperature/top_p/top_k return 400 if set to non-default values.
-# - effort controls token spend. "medium" fits this task: synthesizing ~20
-#   numeric datapoints against defined thresholds and picking from 4 enumerated
-#   actions. "high" (default) over-elaborates; "low" skips thinking entirely.
-CLAUDE_MODEL = "claude-opus-4-7"
-CLAUDE_MAX_TOKENS = 8000
-CLAUDE_EFFORT = "medium"
-CLAUDE_MAX_RETRIES = 5
-
-
-def call_claude_with_retry(client, **kwargs):
-    # Exponential backoff with jitter on rate limits, connection errors, and
-    # 5xx. Non-retriable errors (4xx other than 429) raise immediately.
-    import anthropic  # deferred import; only needed on the call path
-
-    for attempt in range(CLAUDE_MAX_RETRIES):
-        if attempt > 0:
-            delay = random.uniform(2 ** (attempt - 1), 2**attempt)
-            print(f"  [retry {attempt}/{CLAUDE_MAX_RETRIES - 1}] waiting {delay:.1f}s...", file=sys.stderr)
-            time.sleep(delay)
-        try:
-            return client.messages.create(**kwargs)
-        except anthropic.RateLimitError:
-            if attempt < CLAUDE_MAX_RETRIES - 1:
-                print("  [error] 429 rate limit, retrying...", file=sys.stderr)
-                continue
-            raise
-        except anthropic.APIConnectionError as e:
-            if attempt < CLAUDE_MAX_RETRIES - 1:
-                print(f"  [error] connection error, retrying: {e}", file=sys.stderr)
-                continue
-            raise
-        except anthropic.APIStatusError as e:
-            if e.status_code >= 500 and attempt < CLAUDE_MAX_RETRIES - 1:
-                print(f"  [error] {e.status_code} server error, retrying...", file=sys.stderr)
-                continue
-            raise
-    raise RuntimeError("call_claude_with_retry: exhausted retries")
-
-
-def call_claude(prompt):
-    import anthropic  # deferred so users without the SDK can still print prompts
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        sys.exit("ERROR: HRV_CALL_CLAUDE is set but ANTHROPIC_API_KEY is not")
-
-    client = anthropic.Anthropic(api_key=api_key)
-
-    print(f"# calling {CLAUDE_MODEL} (effort={CLAUDE_EFFORT}, adaptive thinking, display omitted)...", file=sys.stderr)
-
-    response = call_claude_with_retry(
-        client,
-        model=CLAUDE_MODEL,
-        max_tokens=CLAUDE_MAX_TOKENS,
-        messages=[{"role": "user", "content": prompt}],
-        thinking={"type": "adaptive"},
-        output_config={"effort": CLAUDE_EFFORT},
-    )
-
-    # Extract only text blocks. Thinking blocks are omitted by default on
-    # Opus 4.7, but we filter defensively in case that ever changes.
-    text = "".join(b.text for b in response.content if b.type == "text").strip()
-
-    usage = response.usage
-    print(f"# input_tokens={usage.input_tokens} output_tokens={usage.output_tokens}", file=sys.stderr)
-    if getattr(response, "stop_reason", None) == "max_tokens":
-        print("# WARNING: hit max_tokens; output likely truncated", file=sys.stderr)
-
-    return text
-
-
 def main():
     prompt = build_prompt()
 
-    # Default mode: print the prompt to stdout (pipe to pbcopy, etc).
-    # Set HRV_CALL_CLAUDE=1 to instead call the API and print the response.
-    # if os.environ.get("HRV_CALL_CLAUDE"):
-    response_text = call_claude(prompt)
+    # Dispatch to whatever provider/model llm_client has configured as the
+    # default. Swap it there, not here.
+    response_text = call_llm(prompt)
     print("=" * 80)
     print(response_text)
     print("=" * 80)
-    # else:
-    #    print(prompt)
 
 
 if __name__ == "__main__":
