@@ -106,6 +106,7 @@ def compute_rhr_hrv_from_rr_data(infile, n_calm_beats=120):
     # behavior; do not change without re-validating trend.
     ssd = np.diff(rr_calm) ** 2
     rmssd_ms = float(np.sqrt(np.mean(ssd)))
+    rmssd_ms_median = float(np.sqrt(np.median(ssd)))
 
     # Breathing rate: find dominant low-freq oscillation in HR trace.
     # RSA produces ~0.2-0.4 Hz peak (12-24 breaths/min); paced slow breathing
@@ -115,6 +116,7 @@ def compute_rhr_hrv_from_rr_data(infile, n_calm_beats=120):
     return {
         "rest_hr_bpm": round(rest_hr_bpm, 1),
         "rmssd_ms": round(rmssd_ms, 1),
+        "rmssd_ms_median": round(rmssd_ms_median * 1.2741 + 2.8714, 1),
         "stdrr_ms": round(stdrr_ms, 1),
         "n_beats": int(mask.sum()),
         "breathing_rate_est": breathing_rate_est,

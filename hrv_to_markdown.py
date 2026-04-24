@@ -326,16 +326,8 @@ def process_morning_hrv(prefix, notes, rr_path):
 
     r = compute_rhr_hrv_from_rr_data(str(rr_path))
 
-    # RMSSD label vs 30d median ~35 ms.
     rmssd = r["rmssd_ms"]
-    if rmssd < 25:
-        rmssd_label = "well below 30d median"
-    elif rmssd < 32:
-        rmssd_label = "below 30d median"
-    elif rmssd < 40:
-        rmssd_label = "near 30d median"
-    else:
-        rmssd_label = "above 30d median"
+    rmssd_median = r["rmssd_ms_median"]
 
     br = r["breathing_rate_est"]
     br_line = f"| Breathing rate (est) | {br} /min |" if br is not None else ""
@@ -348,7 +340,8 @@ def process_morning_hrv(prefix, notes, rr_path):
         "| Metric | Value |",
         "|--------|-------|",
         f"| Resting HR | {r['rest_hr_bpm']} bpm |",
-        f"| RMSSD | {rmssd} ms ({rmssd_label}) |",
+        f"| RMSSD | {rmssd} ms (normal rt-mean-ssd) |",
+        f"| RMedSSD | {rmssd_median} ms (rt-median-ssd with scaling factors to approximate RMSSD) |",
         f"| stdRR (calm window) | {r['stdrr_ms']} ms |",
         br_line,
     ]

@@ -17,7 +17,8 @@ import time
 
 # Default provider selection. Edit this single line to switch backends for
 # testing. Supported values: "anthropic", "moonshot".
-DEFAULT_PROVIDER = ["anthropic", "moonshot", "google", "qwen", "xiaomi", "glm"][5]
+# DEFAULT_PROVIDER = ["anthropic", "moonshot", "google", "qwen", "xiaomi", "glm"][5]
+DEFAULT_PROVIDER = ["anthropic", "qwen", "xiaomi", "glm"][0]
 
 
 MAX_RETRIES = 5

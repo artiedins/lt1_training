@@ -78,6 +78,7 @@ def parse_session_file(path):
         rec["type"] = "morning_hrv"
         rec["rhr"] = extract_metric(text, r"Resting HR \| ([\d.]+) bpm")
         rec["rmssd"] = extract_metric(text, r"RMSSD \| ([\d.]+) ms")
+        rec["rmssd_med"] = extract_metric(text, r"RMedSSD \| ([\d.]+) ms")
         rec["stdrr"] = extract_metric(text, r"stdRR \(calm window\) \| ([\d.]+) ms")
         rec["breathing_rate"] = extract_metric(text, r"Breathing rate \(est\) \| ([\d.]+) /min")
     elif "Easy Aerobic Run" in text:
@@ -225,7 +226,7 @@ def autonomic_drift_flag(rmssd_short, rmssd_long, rhr_short, rhr_long, sessions_
 
 def generate_summary(recs, today=None):
     if today is None:
-        today = datetime.now().date()
+        today = datetime.now().date()  # TODO: CHANGE TO BE LOCAL TIME, not UTC
 
     if not recs:
         return "# Weekly Rolling Summary\n\nNo session data found.\n"
@@ -243,15 +244,15 @@ def generate_summary(recs, today=None):
     has_pre = any(r["date"] < TRANSITION_DATE and r["date"] >= long_window_cutoff for r in recs)
     has_post = any(r["date"] >= TRANSITION_DATE for r in recs)
     transition_note = None
-    if has_pre and has_post:
-        transition_note = (
-            f"**Transition caveat:** The {LONG_WINDOW}d window straddles "
-            f"the {TRANSITION_DATE.isoformat()} protocol transition. Pre-transition "
-            f"runs were at the wrong HR. Morning HRV/RHR from pre-transition is "
-            f"still valid (measurement protocol unchanged). Run-execution and "
-            f"HRR metrics from pre-transition should be treated as historical, "
-            f"not as a baseline the new protocol should match."
-        )
+    # if has_pre and has_post:
+    #    transition_note = (
+    #        f"**Transition caveat:** The {LONG_WINDOW}d window straddles "
+    #        f"the {TRANSITION_DATE.isoformat()} protocol transition. Pre-transition "
+    #        f"runs were at the wrong HR. Morning HRV/RHR from pre-transition is "
+    #        f"still valid (measurement protocol unchanged). Run-execution and "
+    #        f"HRR metrics from pre-transition should be treated as historical, "
+    #        f"not as a baseline the new protocol should match."
+    #    )
 
     # Staleness strategy: if last session was within SHORT_WINDOW days, use
     # calendar-based 7d/28d windows. Otherwise, anchor windows on the last
@@ -266,16 +267,27 @@ def generate_summary(recs, today=None):
     # --- Morning HRV rollups ---
     rhr_s = values_in_window(recs, "rhr", SHORT_WINDOW, anchor, "morning_hrv")
     rhr_l = values_in_window(recs, "rhr", LONG_WINDOW, anchor, "morning_hrv")
+
     rmssd_s = values_in_window(recs, "rmssd", SHORT_WINDOW, anchor, "morning_hrv")
     rmssd_l = values_in_window(recs, "rmssd", LONG_WINDOW, anchor, "morning_hrv")
+
+    rmssd_med_s = values_in_window(recs, "rmssd_med", SHORT_WINDOW, anchor, "morning_hrv")
+    rmssd_med_l = values_in_window(recs, "rmssd_med", LONG_WINDOW, anchor, "morning_hrv")
+
     stdrr_s = values_in_window(recs, "stdrr", SHORT_WINDOW, anchor, "morning_hrv")
     stdrr_l = values_in_window(recs, "stdrr", LONG_WINDOW, anchor, "morning_hrv")
 
     rhr_s_med = median_or_none(rhr_s, MIN_SAMPLES_SHORT)
     rhr_l_med = median_or_none(rhr_l, MIN_SAMPLES_LONG)
+
     rmssd_s_med = median_or_none(rmssd_s, MIN_SAMPLES_SHORT)
     rmssd_l_med = median_or_none(rmssd_l, MIN_SAMPLES_LONG)
     rmssd_l_cv = cv_pct(rmssd_l)
+
+    rmssd_med_s_med = median_or_none(rmssd_med_s, MIN_SAMPLES_SHORT)
+    rmssd_med_l_med = median_or_none(rmssd_med_l, MIN_SAMPLES_LONG)
+    rmssd_med_l_cv = cv_pct(rmssd_med_l)
+
     stdrr_s_med = median_or_none(stdrr_s, MIN_SAMPLES_SHORT)
     stdrr_l_med = median_or_none(stdrr_l, MIN_SAMPLES_LONG)
 
@@ -344,7 +356,8 @@ def generate_summary(recs, today=None):
         f"| Metric | {SHORT_WINDOW}d median (N={len(rhr_s)}) | {LONG_WINDOW}d median (N={len(rhr_l)}) | delta |",
         "|---|---|---|---|",
         f"| RHR | {_fmt(rhr_s_med)} bpm | {_fmt(rhr_l_med)} bpm | {trend_arrow(rhr_s_med, rhr_l_med)} |",
-        f"| RMSSD | {_fmt(rmssd_s_med)} ms | {_fmt(rmssd_l_med)} ms | {trend_arrow(rmssd_s_med, rmssd_l_med)} |",
+        f"| RMSSD | {_fmt(rmssd_s_med)} ms | {_fmt(rmssd_l_med)} ms | {trend_arrow(rmssd_s_med, rmssd_l_med)} (normal RMSSD) |",
+        f"| RMedSSD | {_fmt(rmssd_med_s_med)} ms | {_fmt(rmssd_med_l_med)} ms | {trend_arrow(rmssd_med_s_med, rmssd_med_l_med)} (this is rt-median-ssd with scaling factors to approximate normal RMSSD)|",
         f"| stdRR | {_fmt(stdrr_s_med)} ms | {_fmt(stdrr_l_med)} ms | {trend_arrow(stdrr_s_med, stdrr_l_med)} |",
         "",
         f"RMSSD {LONG_WINDOW}d CV: {_fmt(rmssd_l_cv)}%. " "Target RMSSD: 65 ms (multi-year move; weekly changes are noise).",
