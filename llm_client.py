@@ -18,7 +18,7 @@ import time
 # Default provider selection. Edit this single line to switch backends for
 # testing. Supported values: "anthropic", "moonshot".
 # DEFAULT_PROVIDER = ["anthropic", "moonshot", "google", "qwen", "xiaomi", "glm"][5]
-DEFAULT_PROVIDER = ["anthropic", "qwen", "xiaomi", "glm"][0]
+DEFAULT_PROVIDER = ["anthropic", "qwen", "glm", "ds4_pro", "ds4_flash"][4]
 
 
 MAX_RETRIES = 5
@@ -124,6 +124,16 @@ GLM_MAX_TOKENS = 8000
 GLM_REASONING_ENABLED = True
 GLM_APP_URL = os.environ.get("HRV_OPENROUTER_APP_URL", "")
 GLM_APP_TITLE = os.environ.get("HRV_OPENROUTER_APP_TITLE", "hrv-trainer-prompt")
+
+# "ds4_pro", "ds4_flash"
+
+DS4_PRO_MODEL = "deepseek/deepseek-v4-pro:exacto"
+DS4_FLASH_MODEL = "deepseek/deepseek-v4-flash:exacto"
+DS4_BASE_URL = "https://openrouter.ai/api/v1"
+DS4_MAX_TOKENS = 8000
+DS4_REASONING_ENABLED = True
+DS4_APP_URL = os.environ.get("HRV_OPENROUTER_APP_URL", "")
+DS4_APP_TITLE = os.environ.get("HRV_OPENROUTER_APP_TITLE", "hrv-trainer-prompt")
 
 
 def _sleep_with_jitter(attempt):
@@ -571,6 +581,94 @@ def _call_glm(prompt):
     return text
 
 
+def _call_ds4(prompt):
+    # OpenRouter exposes an OpenAI-compatible API, so we reuse the openai
+    # SDK with a base_url override. Same structural pattern as Moonshot
+    # and Qwen - the differences are just base_url, the extra_body keys,
+    # and two optional attribution headers.
+    import openai
+
+    if DEFAULT_PROVIDER == "ds4_pro":
+        DS4_MODEL = DS4_PRO_MODEL
+    if DEFAULT_PROVIDER == "ds4_flash":
+        DS4_MODEL = DS4_FLASH_MODEL
+
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        sys.exit("ERROR: provider='ds4' but OPENROUTER_API_KEY is not set")
+
+    # OpenRouter's attribution headers are optional. Populating them lets
+    # the request show up on their leaderboards if you care. Empty strings
+    # are fine if you don't. Headers with empty values get dropped by httpx.
+    default_headers = {}
+    if DS4_APP_URL:
+        default_headers["HTTP-Referer"] = DS4_APP_URL
+    if DS4_APP_TITLE:
+        default_headers["X-Title"] = DS4_APP_TITLE
+
+    client = openai.OpenAI(
+        api_key=api_key,
+        base_url=DS4_BASE_URL,
+        default_headers=default_headers or None,
+    )
+
+    print(
+        f"# calling {DS4_MODEL} via openrouter " f"(reasoning={'on' if DS4_REASONING_ENABLED else 'off'})...",
+        file=sys.stderr,
+    )
+
+    response = None
+    for attempt in range(MAX_RETRIES):
+        if attempt > 0:
+            _sleep_with_jitter(attempt)
+        try:
+            response = client.chat.completions.create(
+                model=DS4_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=DS4_MAX_TOKENS,
+                # OpenRouter's unified reasoning param: {"enabled": bool}
+                # toggles thinking across providers without us having to
+                # know each backend's native dial. Rides in extra_body
+                # because the OpenAI schema has no "reasoning" field.
+                extra_body={"reasoning": {"enabled": DS4_REASONING_ENABLED}},
+            )
+            break
+        except openai.RateLimitError:
+            if attempt < MAX_RETRIES - 1:
+                print("  [error] 429 rate limit, retrying...", file=sys.stderr)
+                continue
+            raise
+        except openai.APIConnectionError as e:
+            if attempt < MAX_RETRIES - 1:
+                print(f"  [error] connection error, retrying: {e}", file=sys.stderr)
+                continue
+            raise
+        except openai.APIStatusError as e:
+            if e.status_code >= 500 and attempt < MAX_RETRIES - 1:
+                print(f"  [error] {e.status_code} server error, retrying...", file=sys.stderr)
+                continue
+            raise
+    if response is None:
+        raise RuntimeError("_call_ds4: exhausted retries")
+
+    # OpenRouter puts reasoning in message.reasoning (distinct from the
+    # final answer in message.content). So .content is already clean.
+    choice = response.choices[0]
+    text = (choice.message.content or "").strip()
+
+    usage = response.usage
+    print(
+        f"# prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens}",
+        file=sys.stderr,
+    )
+    # OpenRouter normalizes finish_reason to OpenAI values, so "length"
+    # is the truncation signal here same as with direct OpenAI calls.
+    if choice.finish_reason == "length":
+        print("# WARNING: hit max_tokens; output likely truncated", file=sys.stderr)
+
+    return text
+
+
 # Dispatch table. Adding a provider = one entry here + one _call_* function.
 _PROVIDERS = {
     "anthropic": _call_anthropic,
@@ -579,6 +677,8 @@ _PROVIDERS = {
     "qwen": _call_qwen,
     "xiaomi": _call_xiaomi,
     "glm": _call_glm,
+    "ds4_pro": _call_ds4,
+    "ds4_flash": _call_ds4,
 }
 
 

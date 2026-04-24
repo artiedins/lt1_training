@@ -447,11 +447,11 @@ def process_easy_aerobic(
         ]
         lines += band_rows
 
-    if drift is not None:
-        lines += [
-            "",
-            f"**Cardiac drift:** {early_hr}->{late_hr} bpm, {drift:+.1f} bpm " f"({drift_label})",
-        ]
+    # if drift is not None:
+    #    lines += [
+    #        "",
+    #        f"**Cardiac drift:** {early_hr}->{late_hr} bpm, {drift:+.1f} bpm " f"({drift_label})",
+    #    ]
 
     # Push / HRR section
     if push is None:

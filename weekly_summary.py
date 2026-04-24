@@ -4,6 +4,7 @@ import re
 import statistics
 from datetime import datetime, timedelta, date
 from pathlib import Path
+import zoneinfo
 
 # Code style:
 # - No type hinting
@@ -226,7 +227,7 @@ def autonomic_drift_flag(rmssd_short, rmssd_long, rhr_short, rhr_long, sessions_
 
 def generate_summary(recs, today=None):
     if today is None:
-        today = datetime.now().date()  # TODO: CHANGE TO BE LOCAL TIME, not UTC
+        today = datetime.now(zoneinfo.ZoneInfo("America/Los_Angeles")).date()
 
     if not recs:
         return "# Weekly Rolling Summary\n\nNo session data found.\n"
@@ -340,12 +341,12 @@ def generate_summary(recs, today=None):
     # --- Render ---
     lines = [
         "# Weekly Rolling Summary",
-        f"*Generated {today.isoformat()}.{anchor_note}*",
-        "",
-        f"**Last session:** {last_session_date.isoformat()} ({days_since_any}d ago). "
-        f"**Last session with confirmed push (peak >=150):** "
-        f"{(days_since_hard if days_since_hard is not None else 'none on record')}"
-        f"{'d ago' if days_since_hard is not None else ''}.",
+        # f"*Generated {today.isoformat()}.{anchor_note}*",
+        # "",
+        # f"**Last session:** {last_session_date.isoformat()} ({days_since_any}d ago). "
+        # f"**Last session with confirmed push (peak >=150):** "
+        # f"{(days_since_hard if days_since_hard is not None else 'none on record')}"
+        # f"{'d ago' if days_since_hard is not None else ''}.",
         "",
     ]
     if transition_note:
@@ -353,30 +354,30 @@ def generate_summary(recs, today=None):
     lines += [
         "## Morning HRV",
         "",
-        f"| Metric | {SHORT_WINDOW}d median (N={len(rhr_s)}) | {LONG_WINDOW}d median (N={len(rhr_l)}) | delta |",
-        "|---|---|---|---|",
-        f"| RHR | {_fmt(rhr_s_med)} bpm | {_fmt(rhr_l_med)} bpm | {trend_arrow(rhr_s_med, rhr_l_med)} |",
-        f"| RMSSD | {_fmt(rmssd_s_med)} ms | {_fmt(rmssd_l_med)} ms | {trend_arrow(rmssd_s_med, rmssd_l_med)} (normal RMSSD) |",
-        f"| RMedSSD | {_fmt(rmssd_med_s_med)} ms | {_fmt(rmssd_med_l_med)} ms | {trend_arrow(rmssd_med_s_med, rmssd_med_l_med)} (this is rt-median-ssd with scaling factors to approximate normal RMSSD)|",
+        f"| Metric | {SHORT_WINDOW}d median (N={len(rhr_s)}) | {LONG_WINDOW}d median (N={len(rhr_l)}) | delta | note |",
+        "|---|---|---|---|---|",
+        f"| RHR | {_fmt(rhr_s_med)} bpm | {_fmt(rhr_l_med)} bpm | {trend_arrow(rhr_s_med, rhr_l_med)} | |",
+        f"| RMSSD | {_fmt(rmssd_s_med)} ms | {_fmt(rmssd_l_med)} ms | {trend_arrow(rmssd_s_med, rmssd_l_med)} | normal RMSSD |",
+        f"| RMedSSD | {_fmt(rmssd_med_s_med)} ms | {_fmt(rmssd_med_l_med)} ms | {trend_arrow(rmssd_med_s_med, rmssd_med_l_med)} | this is rt-median-ssd with scaling factors to approximate normal RMSSD |",
         f"| stdRR | {_fmt(stdrr_s_med)} ms | {_fmt(stdrr_l_med)} ms | {trend_arrow(stdrr_s_med, stdrr_l_med)} |",
         "",
-        f"RMSSD {LONG_WINDOW}d CV: {_fmt(rmssd_l_cv)}%. " "Target RMSSD: 65 ms (multi-year move; weekly changes are noise).",
+        f"RMSSD {LONG_WINDOW}d CV: {_fmt(rmssd_l_cv)}%. ",
         "",
-        "## Autonomic Drift Check",
-        "",
+        # "## Autonomic Drift Check",
+        # "",
     ]
     # Severity-weighted display: "concern" gets a big block, "normal" gets a
     # one-liner, "deferred" gets a parenthetical. Prevents no-concern output
     # from reading as alarming.
-    if drift_flag is True:
-        lines.append(f"**FLAG RAISED:** {drift_note}")
-    elif drift_severity == "concern":
-        lines.append(f"**No flag, but note:** {drift_note}")
-    elif drift_severity == "normal":
-        lines.append(f"No flag: {drift_note}.")
-    else:
-        lines.append(f"*(deferred: {drift_note})*")
-    lines.append("")
+    # if drift_flag is True:
+    #    lines.append(f"**FLAG RAISED:** {drift_note}")
+    # elif drift_severity == "concern":
+    #    lines.append(f"**No flag, but note:** {drift_note}")
+    # elif drift_severity == "normal":
+    #    lines.append(f"No flag: {drift_note}.")
+    # else:
+    #    lines.append(f"*(deferred: {drift_note})*")
+    # lines.append("")
 
     lines += [
         "## Training Volume & Execution",
@@ -399,12 +400,12 @@ def generate_summary(recs, today=None):
 
     lines += ["## HRR", ""]
     lines += _format_hrr_section(hrr_60_s_samples, hrr_60_l_samples)
-    lines += [
-        f"Within-run cardiac drift {SHORT_WINDOW}d median: {_fmt(drift_s_med)} bpm.",
-        "",
-        "Lab baseline HRR_60: 29 bpm (rested likely 32-36+). Rising trend = parasympathetic reactivation improving.",
-        "",
-    ]
+    # lines += [
+    #    f"Within-run cardiac drift {SHORT_WINDOW}d median: {_fmt(drift_s_med)} bpm.",
+    #    "",
+    #    "Lab baseline HRR_60: 29 bpm (rested likely 32-36+). Rising trend = parasympathetic reactivation improving.",
+    #    "",
+    # ]
 
     return "\n".join(lines)
 

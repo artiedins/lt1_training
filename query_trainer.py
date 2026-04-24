@@ -285,7 +285,7 @@ def build_task_block(horizon_label, target_date):
         f"({target_date.isoformat()}) using the full context above:\n"
         "\n"
         "1. **Critique** the most recent 1-2 sessions. Cite numbers and dates.\n"
-        "2. **Check** the weekly summary for autonomic-drift flag and HRV/RHR trend.\n"
+        "2. **Check** the weekly summary for trends.\n"
         "3. **Prescribe** exactly one option from the constrained action space "
         "(section 7 of the context). State type, target HR, duration, and a "
         "one-line execution cue.\n"
