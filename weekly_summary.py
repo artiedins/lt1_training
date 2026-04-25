@@ -245,15 +245,6 @@ def generate_summary(recs, today=None):
     has_pre = any(r["date"] < TRANSITION_DATE and r["date"] >= long_window_cutoff for r in recs)
     has_post = any(r["date"] >= TRANSITION_DATE for r in recs)
     transition_note = None
-    # if has_pre and has_post:
-    #    transition_note = (
-    #        f"**Transition caveat:** The {LONG_WINDOW}d window straddles "
-    #        f"the {TRANSITION_DATE.isoformat()} protocol transition. Pre-transition "
-    #        f"runs were at the wrong HR. Morning HRV/RHR from pre-transition is "
-    #        f"still valid (measurement protocol unchanged). Run-execution and "
-    #        f"HRR metrics from pre-transition should be treated as historical, "
-    #        f"not as a baseline the new protocol should match."
-    #    )
 
     # Staleness strategy: if last session was within SHORT_WINDOW days, use
     # calendar-based 7d/28d windows. Otherwise, anchor windows on the last
@@ -341,12 +332,6 @@ def generate_summary(recs, today=None):
     # --- Render ---
     lines = [
         "# Weekly Rolling Summary",
-        # f"*Generated {today.isoformat()}.{anchor_note}*",
-        # "",
-        # f"**Last session:** {last_session_date.isoformat()} ({days_since_any}d ago). "
-        # f"**Last session with confirmed push (peak >=150):** "
-        # f"{(days_since_hard if days_since_hard is not None else 'none on record')}"
-        # f"{'d ago' if days_since_hard is not None else ''}.",
         "",
     ]
     if transition_note:
@@ -363,21 +348,7 @@ def generate_summary(recs, today=None):
         "",
         f"RMSSD {LONG_WINDOW}d CV: {_fmt(rmssd_l_cv)}%. ",
         "",
-        # "## Autonomic Drift Check",
-        # "",
     ]
-    # Severity-weighted display: "concern" gets a big block, "normal" gets a
-    # one-liner, "deferred" gets a parenthetical. Prevents no-concern output
-    # from reading as alarming.
-    # if drift_flag is True:
-    #    lines.append(f"**FLAG RAISED:** {drift_note}")
-    # elif drift_severity == "concern":
-    #    lines.append(f"**No flag, but note:** {drift_note}")
-    # elif drift_severity == "normal":
-    #    lines.append(f"No flag: {drift_note}.")
-    # else:
-    #    lines.append(f"*(deferred: {drift_note})*")
-    # lines.append("")
 
     lines += [
         "## Training Volume & Execution",
@@ -400,12 +371,6 @@ def generate_summary(recs, today=None):
 
     lines += ["## HRR", ""]
     lines += _format_hrr_section(hrr_60_s_samples, hrr_60_l_samples)
-    # lines += [
-    #    f"Within-run cardiac drift {SHORT_WINDOW}d median: {_fmt(drift_s_med)} bpm.",
-    #    "",
-    #    "Lab baseline HRR_60: 29 bpm (rested likely 32-36+). Rising trend = parasympathetic reactivation improving.",
-    #    "",
-    # ]
 
     return "\n".join(lines)
 

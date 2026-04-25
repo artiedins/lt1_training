@@ -30,6 +30,7 @@ SESSION_TYPES = [
     "rest_day",
     "zone2_continuous",
     "zone2_drift_monitor",
+    "soccer_with_kids",
 ]
 
 ZONE_BANDS = [
@@ -63,6 +64,21 @@ PUSH_RISE_WINDOW_HI_SEC = 30
 
 # HRR sample points (seconds after peak). Ordered; output respects this order.
 HRR_OFFSETS = [30, 60, 90, 120]
+
+# --- Soccer / mixed-intensity life activity constants ---
+
+# Burst = sustained excursion above SOCCER_BURST_THRESHOLD bpm, separated
+# from neighbors by a valley SOCCER_BURST_VALLEY_DROP bpm below the in-burst
+# peak. This counts genuine intensity events (sprint after the ball, defend
+# a fast break) and rejects same-burst noise. Tuned against a real session:
+# threshold 140 captured the felt-significant efforts without over-counting.
+SOCCER_BURST_THRESHOLD = 140
+SOCCER_BURST_VALLEY_DROP = 10
+
+# Active portion = everything up to the last sample at or above this HR.
+# Soccer ends with a walk back to the car; that tail isn't load and pulls
+# the mean down misleadingly if included.
+SOCCER_ACTIVE_FLOOR_BPM = 120
 
 
 # --- Utilities ---
@@ -317,6 +333,30 @@ def detect_push_and_hrr(hrs_array, ts_array):
     return result
 
 
+# --- Burst detection (mixed-intensity activity) ---
+
+
+def count_bursts(hrs_smooth, threshold, valley_drop):
+    # Walk the trace; a burst starts when smoothed HR crosses up through
+    # `threshold` and ends when HR drops below (in-burst peak - valley_drop)
+    # AND below threshold-5. The double condition prevents counting two
+    # bursts when HR oscillates near the threshold without a real recovery.
+    n = 0
+    above = False
+    peak_in_burst = 0
+    for h in hrs_smooth:
+        if h >= threshold and not above:
+            above = True
+            n += 1
+            peak_in_burst = h
+        elif h >= threshold and above:
+            if h > peak_in_burst:
+                peak_in_burst = h
+        elif above and h < (peak_in_burst - valley_drop) and h < threshold - 5:
+            above = False
+    return n
+
+
 # --- Session processors ---
 
 
@@ -447,12 +487,6 @@ def process_easy_aerobic(
         ]
         lines += band_rows
 
-    # if drift is not None:
-    #    lines += [
-    #        "",
-    #        f"**Cardiac drift:** {early_hr}->{late_hr} bpm, {drift:+.1f} bpm " f"({drift_label})",
-    #    ]
-
     # Push / HRR section
     if push is None:
         lines += ["", "**No end push (intentional).**"]
@@ -478,6 +512,131 @@ def _fmt(v):
 
 def process_rest_day(prefix, notes):
     return f"\n## {prefix} - Rest Day\n" f"**Notes:** {notes or '-'}\n\n" f"No session. Logged for load accounting."
+
+
+def process_soccer_with_kids(prefix, notes, hr_rows):
+    # Soccer with kids = mixed-intensity intermittent activity. Recording
+    # typically starts before play (warmup walk, kit setup) and ends with
+    # a cooldown walk, so we trim both ends. The resulting "active portion"
+    # is what actually loaded the cardiovascular system.
+    #
+    # Why this report exists separately from easy_aerobic:
+    # - It is NOT training. It is life activity that competes with training
+    #   for autonomic budget. Reporting it under easy_aerobic would invite
+    #   the LLM to judge it against the Z2 ceiling, which is the wrong frame.
+    # - The middle-zone time (126-140) here is unavoidable life cost, not
+    #   a prescription failure.
+    # - Bursts above 140 are real VT2-territory exposure and should count
+    #   toward "days since hard" reasoning even though no intentional push
+    #   protocol was followed.
+    # - HRV the morning after is expected to dip; that dip is not a deload
+    #   signal.
+    hrs_raw = deduplicate_hr(hr_rows)
+    if not hrs_raw:
+        return f"\n## {prefix} - Soccer with Kids\n\n(no HR data found)"
+
+    hrs_full = hr_array(hrs_raw)
+    total_min = round(len(hrs_full) / 60, 1)
+
+    # Onset: first 10-sample mean above 110 bpm. Same convention as runs.
+    onset_idx = 0
+    for i in range(len(hrs_full) - 10):
+        if np.mean(hrs_full[i : i + 10]) > 110:
+            onset_idx = i
+            break
+
+    # Active end: last sample at or above SOCCER_ACTIVE_FLOOR_BPM. Rejects
+    # the walk-back-to-car tail which dilutes the mean.
+    active_end = len(hrs_full)
+    for i in range(len(hrs_full) - 1, onset_idx, -1):
+        if hrs_full[i] >= SOCCER_ACTIVE_FLOOR_BPM:
+            active_end = i + 1
+            break
+
+    hrs_active = hrs_full[onset_idx:active_end]
+    if len(hrs_active) < 60:
+        # Fallback: too short to meaningfully trim - report on the whole thing
+        hrs_active = hrs_full
+        active_min = total_min
+    else:
+        active_min = round(len(hrs_active) / 60, 1)
+
+    mean_hr = round(float(np.mean(hrs_active)), 1)
+    median_hr = int(np.median(hrs_active))
+    hr_min = int(np.min(hrs_active))
+    hr_max = int(np.max(hrs_active))
+
+    band_counts = time_in_bands(hrs_active)
+    total = len(hrs_active)
+
+    def pct(name):
+        return round(band_counts[name] / total * 100, 0) if total else 0
+
+    # Burst detection on lightly-smoothed trace. Smoothing window of 5s
+    # rejects single-sample artifacts without erasing the real ~10-30s
+    # sprint-and-recover structure of soccer.
+    hrs_smooth = np.convolve(hrs_active.astype(float), np.ones(5) / 5, mode="same")
+    n_bursts = count_bursts(hrs_smooth, SOCCER_BURST_THRESHOLD, SOCCER_BURST_VALLEY_DROP)
+
+    # Time at/above VT2 (153). This is the load-cost signal for HRV impact.
+    sec_above_vt2 = int((hrs_active >= 153).sum())
+    sec_above_140 = int((hrs_active >= 140).sum())
+
+    lines = [f"\n## {prefix} - Soccer with Kids"]
+    if notes and notes.strip() and notes.strip().lower() != "no notes":
+        lines.append(f"**Notes:** {notes.strip()}")
+    lines += [
+        "",
+        "Mixed-intensity life activity (NOT prescribed training). Reported here",
+        "so the autonomic load is visible to coaching decisions; do not judge",
+        "execution against Z2 targets.",
+        "",
+        "| Metric | Value |",
+        "|--------|-------|",
+        f"| Total recording | {total_min} min |",
+        f"| Active portion | {active_min} min |",
+        f"| Active mean HR | {mean_hr} bpm |",
+        f"| Active median HR | {median_hr} bpm |",
+        f"| HR range (active) | {hr_min}-{hr_max} bpm |",
+        f"| Bursts above {SOCCER_BURST_THRESHOLD} bpm | {n_bursts} |",
+        f"| Time at/above 140 bpm | {sec_above_140}s |",
+        f"| Time at/above VT2 (153) | {sec_above_vt2}s |",
+    ]
+
+    band_rows = []
+    for name, lo, hi, desc in ZONE_BANDS:
+        if band_counts[name] == 0:
+            continue
+        hr_range = f"{lo}-{hi - 1}" if hi < 999 else f">={lo}"
+        band_rows.append(f"| {desc} ({hr_range}) | {band_counts[name]}s | {pct(name):.0f}% |")
+    if band_rows:
+        lines += [
+            "",
+            "**Time in band (active portion):**",
+            "",
+            "| Band | Seconds | % |",
+            "|------|---------|---|",
+        ]
+        lines += band_rows
+
+    # Coaching guidance. Explicit so a downstream LLM does not have to infer.
+    lines += [
+        "",
+        "**Load interpretation:** This session counts as a real cardiovascular",
+        "load event. Treat it as life activity competing with training for",
+        "autonomic budget, not as a Z2 session that overshot. Implications:",
+        "",
+        f"- If bursts above {SOCCER_BURST_THRESHOLD} bpm occurred (this session: {n_bursts}),",
+        "  treat as VT2-territory exposure for 'days since hard' purposes - do",
+        "  NOT also schedule a rare hard session this week.",
+        "- An HRV dip the morning after is expected and not a deload signal.",
+        "- If soccer happens 2+ times in a 7-day window, easy-aerobic volume",
+        "  may need to come down, not up, to keep total weekly autonomic load",
+        "  in budget.",
+        "- Do NOT count this toward easy-aerobic time-in-Z2 statistics.",
+    ]
+
+    return "\n".join(l for l in lines if l is not None)
 
 
 def process_generic(prefix, session_type, notes, feature_rows, hr_rows):
@@ -539,6 +698,9 @@ def process_session(prefix, yaml_path, input_dir):
             events_rows,
             push_expected=push_expected,
         )
+
+    if session_type == "soccer_with_kids":
+        return process_soccer_with_kids(prefix, notes, hr_rows)
 
     return process_generic(prefix, session_type, notes, feature_rows, hr_rows)
 

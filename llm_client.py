@@ -18,11 +18,9 @@ import time
 # Default provider selection. Edit this single line to switch backends for
 # testing. Supported values: "anthropic", "moonshot".
 # DEFAULT_PROVIDER = ["anthropic", "moonshot", "google", "qwen", "xiaomi", "glm"][5]
-DEFAULT_PROVIDER = ["anthropic", "qwen", "glm", "ds4_pro", "ds4_flash"][4]
+DEFAULT_PROVIDER = ["anthropic", "qwen", "glm", "ds4_pro", "ds4_flash"][0]
 
-
-MAX_RETRIES = 5
-
+MAX_RETRIES = 8
 
 # Anthropic / Opus 4.7 specifics (as of 2026-04):
 # - budget_tokens is removed; only thinking: {"type": "adaptive"} is valid.

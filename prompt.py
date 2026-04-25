@@ -48,7 +48,7 @@ def create_markdown_context(files):
 if __name__ == "__main__":
 
     # The specific files requested
-    target_files = ["00_context.md", "hrv_to_markdown.py", "process_morning_hrv.py", "weekly_summary.py"]
+    target_files = ["00_context.md", "hrv_to_markdown.py", "process_morning_hrv.py", "weekly_summary.py", "query_trainer.py"]
 
     markdown_output = create_markdown_context(target_files)
 
